@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 /*.log
 /target
 /*-init.clj
@@ -8,3 +9,17 @@
 Procfile
 /resources/public/index.js
 /resources/public/babylon.demo.js
+=======
+pom.xml
+pom.xml.asc
+*jar
+/lib/
+/classes/
+/target/
+/checkouts/
+.lein-deps-sum
+.lein-repl-history
+.lein-plugins/
+.lein-failures
+.nrepl-port
+>>>>>>> 3875b800267948a222b9f8c17d1506a3685cf6a2
