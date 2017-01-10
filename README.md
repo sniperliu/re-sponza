@@ -2,7 +2,13 @@
 
 A [re-frame](https://github.com/Day8/re-frame) application.
 
-### Run application:
+## Features Implemented
+
+* Scence Loading
+* Scence Rendering
+* Loading Progress Updating
+
+## Run application:
 
 ```
 lein clean
@@ -24,4 +30,6 @@ lein cljsbuild once min
 
 * Try [re-frame-async-flow-fx](https://github.com/Day8/re-frame-async-flow-fx)
 * Loading Panel
+* Interactive Mode
+* Effects
 * Sound Support
