@@ -4,17 +4,18 @@
             [cljsjs.babylon]))
 
 (defn loader-view []
-  (let [status (re-frame/subscribe [:loader])]    
+  (let [progress (re-frame/subscribe [:loader])]    
     (fn []
-      [:div#sponzaLoader (when (:hidden @status) {:class "hidden"})
+      [:div#sponzaLoader (when (:hidden @progress) {:class "hidden"})
+       [:div#backgroundImage {:style {:opacity (:background-opacity @progress)}}]
        [:div#loadingDetails
         [:div#loadingDetailsBackground]
         [:div#loadingPercentage
          [:div#loadingTitle "Sponza"]
          [:div#teamText "by Babylon.js"]
-         [:div#textPercentage "0%"]
+         [:div#textPercentage  (str (.toFixed (:percentage @progress)) "%")]
          [:div#progressContainer
-          [:progress#loadingProgress {:value "0"
+          [:progress#loadingProgress {:value (:percentage @progress)
                                       :max "100"}]]
          [:div#streamingText "downloading scene"]]
         [:div#iOSTouchToStart.hidden "Touch to start"]]])))
@@ -42,7 +43,7 @@
                      :alignItems :center
                      :justifyContent :center
                      :pointerEvents :none}}
-       [text-effect-view @effect]])))
+       #_[text-effect-view @effect]])))
 
 (defn control-panel []
   (let [controls (re-frame/subscribe [:controls])]

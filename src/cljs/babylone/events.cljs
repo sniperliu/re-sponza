@@ -1,6 +1,7 @@
 (ns babylone.events
   (:require-macros [cljs.core.async.macros :refer [go go-loop]])
   (:require [re-frame.core :as re-frame]
+            [reagent.core :as reagent]
             [cljs.core.async :as async]
             [babylone.db :as db]))
 
@@ -32,13 +33,15 @@
    (when-not (:engine db)
      (let [engine (js/BABYLON.Engine. canvas true #js { "limitDeviceRatio" 2 } true)]
        (println db)
-       (set! engine.enableOfflineSupport true)
+       #_(set! engine.enableOfflineSupport true)
        {:db (-> db
                 (assoc :engine engine))
         :dispatch [:load-config (:scene db)]
         ;;      :deregister-event-handler :install-engine
         :register-listener {:resize (fn [] (.resize engine))
                             :keydown (fn [evt] (re-frame/dispatch [:key-down evt]))}}))))
+
+
 
 (re-frame/reg-event-fx
  :tick
@@ -47,6 +50,9 @@
    #_(println "Clock: " (mod (- now (:start db)) 1000) " - " (js/Math.round (/ (- now (:start db)) 1000)))
    {:db (-> db
             (update :ticks inc))}))
+
+
+
 
 (defn load-config [file-name]
   (println "loading " file-name)
@@ -94,6 +100,31 @@
       :dispatch [:create-scene {:engine (-> cofx :db :engine)
                                 :config out}]})))
 
+(defn re-trigger-timer
+  [handler] (reagent/next-tick handler))
+
+;; refer later https://github.com/Day8/re-frame/wiki/Alternative-dispatch,-routing-&-handling
+(re-frame/reg-event-db
+ :update-progress
+ (fn [db [_ {:keys [scene evt]}]]
+   ;; FIXME use another handler to register/de-register dynamic event handler
+   (cond
+     scene (let [remaining (.getWaitingItemsCount scene)
+                 percentage (+ 50 (* 50 (/ (- 78 remaining) 78)))]
+             (println "percentage " percentage)
+             (when (< percentage 100)
+               (re-trigger-timer (fn [] (re-frame/dispatch [:update-progress {:scene scene}]))))
+             (-> db
+                 (assoc-in [:loader :percentage] percentage)
+                 (assoc-in [:loader :background-opacity] (str (double (/ percentage 100))))))
+     evt (let [percentage (if (.-lengthComputable evt)
+                            (/ (* 50 (.-loaded evt)) (.-total evt))
+                            (/ (* 50 (.-loaded evt)) (* 1024 1024 29.351353645324707)))]
+           (println "evt percentage " percentage)
+           (-> db
+               (assoc-in [:loader :percentage] percentage)
+               (assoc-in [:loader :background-opacity] (str (double (/ percentage 100)))))))))
+
 ;; pipe
 (defn create-scene [engine config-in scene-out]
   (go (let [config (-> (async/<! config-in)
@@ -103,14 +134,18 @@
         (js/BABYLON.SceneLoader.Load (config "scenePath")
                                      (config "sceneName")
                                      engine
-                                     #(go (println "Done loading") (async/>! scene-out %))))))
+                                     #(go (println "Done loading")
+                                          (async/>! scene-out %))
+                                     #(re-frame/dispatch [:update-progress {:evt %}])
+                                     #(do (println "error"))))))
 ;; pipe
-(defn start-scene [scene-in ready-out]
+(defn start-scene [db scene-in ready-out]
   (go
     (let [scene (async/<! scene-in)]
       (println "start scene " scene)
       (println "cameras " (.-cameras scene))
-      (set! (.-activeCamera scene) (aget (.-cameras scene) 2))
+      (re-frame/dispatch [:update-progress {:scene scene}])
+      (set! (.-activeCamera scene) (aget (.-cameras scene) (:active-camera db)))
       (.executeWhenReady scene #(go (async/>! ready-out scene))))))
 
 (re-frame/reg-event-fx
@@ -123,11 +158,11 @@
 
 (re-frame/reg-event-fx
  :before-render
- (fn [cofx [_ scene]]
+ (fn [{:keys [db]} [_ scene]]
    (println "before render")
    (let [out (async/chan)]
-     (start-scene scene out)
-     {:db (:db cofx)
+     (start-scene db scene out)
+     {:db db
       :dispatch [:render out]})))
 
 (re-frame/reg-event-db
@@ -207,8 +242,7 @@
          zone (.-parentNode canvas)
          fullscreen? (get-in db [:controls :fullscreen :fullscreen?])
          fx (cond-> {:db (update-in db [:controls :fullscreen :fullscreen?] not)}
-              fullscreen? (assoc :enter-fullscreen zone)
-              (not fullscreen?) (assoc :exit-fullscreen nil))]
+              (not fullscreen?) (assoc :enter-fullscreen zone)
+              fullscreen? (assoc :exit-fullscreen nil))]
      #_(.switchFullscreen engine true)
-     (println fx)
      fx)))

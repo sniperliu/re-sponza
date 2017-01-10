@@ -5,7 +5,11 @@
    :scene "demo.json"
    :debug? false
    :interactive false
-   :loader {:hidden false}
+   :active-camera 1
+   :loader {:hidden false
+            :items-to-stream 78
+            :background-opacity 0
+            :percentage 0}
    :controls {:hidden true
               :fullscreen {:support-fullscreen? false
                            :fullscreen? false}}
