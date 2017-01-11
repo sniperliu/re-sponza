@@ -67,16 +67,7 @@
                             ;; :touch-action :none
                             }]
      [control-panel]
-     [effect-container]])
-  #_(reagent/create-class
-     {:reagent-render (fn [] [:div#renderingZone [:canvas#renderCanvas {:touch-action :none}]])
-      :component-did-mount (fn [this]
-                             (let [canvas (reagent/dom-node this)]
-                               #_(re-frame/reg-cofx
-                                  :engine
-                                  (fn [coeffects _]
-                                    (assoc coeffects :engine (js/BABYLON.Engine. canvas true))))
-                               (re-frame/dispatch [:install-engine canvas])))}))
+     [effect-container]]))
 
 (defn not-supported-view []
   (fn []
@@ -87,7 +78,7 @@
   (fn []
     [:div {:style {:height "100%"
                    :width "100%"}}
-     [loader-view]
+     #_[loader-view]
      [main-view]
      [not-supported-view]]))
 

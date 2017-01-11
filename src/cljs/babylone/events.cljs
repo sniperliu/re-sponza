@@ -27,21 +27,6 @@
      (.addEventListener js/window (name event) handler))))
 
 (re-frame/reg-event-fx
- :install-engine
- [re-frame/debug re-frame/trim-v]
- (fn [{:keys [db]} [canvas]]
-   (when-not (:engine db)
-     (let [engine (js/BABYLON.Engine. canvas true #js { "limitDeviceRatio" 2 } true)]
-       (println db)
-       #_(set! engine.enableOfflineSupport true)
-       {:db (-> db
-                (assoc :engine engine))
-        :dispatch [:load-config (:scene db)]
-        ;;      :deregister-event-handler :install-engine
-        :register-listener {:resize (fn [] (.resize engine))
-                            :keydown (fn [evt] (re-frame/dispatch [:key-down evt]))}}))))
-
-(re-frame/reg-event-fx
  :tick
  [(re-frame/inject-cofx :now)]
  (fn [{:keys [db now]} _]
@@ -65,13 +50,14 @@
   (let [scene-ch (chan)
         progress-ch (chan)
         error-ch (chan)]
-    (.Load js/BABYLON.SceneLoader
+    (js/BABYLON.SceneLoader.Load
            scene-path
            scene-name
            engine
            #(put! scene-ch %)
-           #(put! progress-ch %)
-           #(put! error-ch %))))
+           #(println "progress updated!" %)
+           #(put! error-ch %))
+    [scene-ch progress-ch error-ch]))
 
 
 (defn re-trigger-timer
@@ -106,12 +92,11 @@
                  (.-msRequestFullscreen canvas)))))
 
 (defn init-game
-  [db]
+  [db fullscreen?]
   (merge db {:start (js/Date.) :ticks 0
              :clock (js/setInterval #(re-frame/dispatch [:tick]) 1000)
              :loader {:hidden true} :controls {:hidden false
-                                               :fullscreen {:support-fullscreen
-                                                            (-> db :engine (.getRenderingCanvas))}}}))
+                                               :fullscreen {:support-fullscreen fullscreen?}}}))
 
 (defn whole-scene
   "Initialize a game scene from config-file using a camera and the engine,
@@ -120,18 +105,24 @@
   (go (let [config (<! (load-config config-file))
             [scene-ch progress-ch error-ch]
             (load-scene engine (config "scenePath") (config "sceneName"))
-            _ (go (re-frame/dispatch [:update-progress {:evt (<! progress-ch)}]))
-            scene (<! scene-ch)
-            _ (set! (.-activeCamera scene) (aget (.-cameras scene) camera))]
+            _ (go (when-let [evt (<! progress-ch)]
+                    (re-frame/dispatch [:update-progress {:evt evt}])))
+            scene (<! scene-ch)]
+        (set! (.-activeCamera scene) (aget (.-cameras scene) camera))
         (.runRenderLoop engine #(.render scene)))))
 
 (re-frame/reg-event-fx
- :load-config
- (fn [cofx [_ config]]
-   (let [db (:db cofx)
-         engine (:engine db)]
-     (whole-scene engine config (:active-camera db))
-     {:db (update db :db init-game)})))
+  :install-engine
+  [re-frame/debug re-frame/trim-v]
+  (fn [{:keys [db]} [canvas]]
+    (when-not (:engine db)
+      (let [engine (js/BABYLON.Engine. canvas true #js { "limitDeviceRatio" 2 } true)
+            db (assoc db :engine engine)
+            fullscreen? (-> engine (.getRenderingCanvas) (support-fullscreen?))]
+        (whole-scene engine (:scene db) (:active-camera db))
+        {:db                (update db :db init-game fullscreen?)
+         :register-listener {:resize  (fn [] (.resize engine))
+                             :keydown (fn [evt] (re-frame/dispatch [:key-down evt]))}}))))
 
 (re-frame/reg-fx
  :enter-fullscreen
