@@ -2,7 +2,7 @@
   (:require-macros [cljs.core.async.macros :refer [go go-loop]])
   (:require [re-frame.core :as re-frame]
             [reagent.core :as reagent]
-            [cljs.core.async :as async]
+            [cljs.core.async :as async :refer [>! <! put! chan]]
             [babylone.db :as db]))
 
 (re-frame/reg-cofx
@@ -51,47 +51,30 @@
    {:db (-> db
             (update :ticks inc))}))
 
-
-
-
-(defn load-config [file-name]
-  (println "loading " file-name)
+(defn load-config
+  "load config file async, return a channel"
+  [file-name]
   (let [out (async/chan)]
-    (js/BABYLON.Tools.LoadFile "demo.json" #(go (>! out %)))
+    (js/BABYLON.Tools.LoadFile
+     file-name
+     #(put! out (-> % (js/JSON.parse) (js->clj))))
     out))
 
-#_(js/BABYLON.Tools.LoadFile "demo.json"
-                             (fn [result]
-                               (let [config (js->clj (js/JSON.parse result))]
-                                 (js/BABYLON.SceneLoader.Load
-                                  (config "scenePath")
-                                  (config "sceneName")
-                                  engine
-                                  (fn [scene]
-                                    (.executeWhenReady scene (fn []
-                                                               (println "ready!!")
-                                                               (.runRenderLoop engine #(.render scene)))))))))
+(defn load-scene
+  "load scene for engine on scene-path, return a triple with
+   scene chan, progress chan and error channel."
+  [engine scene-path scene-name]
+  (let [scene-ch (chan)
+        progress-ch (chan)
+        error-ch (chan)]
+    (.Load js/BABYLON.SceneLoader
+           scene-path
+           scene-name
+           engine
+           #(put! scene-ch %)
+           #(put! progress-ch %)
+           #(put! error-ch %))))
 
-#_(re-frame/reg-event-fx
- :render-scene
- (fn [{:keys [db]} [_ config]]
-   (let [engine (:engine db)]
-     (go (try (-> config
-                  (load-config)
-                  async/<!
-                  (js/JSON.parse)
-                  js->clj
-                  ((partial create-scene engine))
-                  async/<!
-                  ((partial start-scene engine))
-                  async/<!
-                  ((fn [scene]
-                     (.runRenderLoop engine #(.render scene))
-                     (re-frame/dispatch [:start-game]))))
-              (catch js/Error e (println "render scene " e))))
-     {:db db})))
-
-;; source
 (re-frame/reg-event-fx
  :load-config
  (fn [cofx [_ config]]
@@ -127,17 +110,13 @@
 
 ;; pipe
 (defn create-scene [engine config-in scene-out]
-  (go (let [config (-> (async/<! config-in)
-                       js/JSON.parse
-                       js->clj)]
-        (println "loading " (str (config "scenePath") (config "sceneName")))
-        (js/BABYLON.SceneLoader.Load (config "scenePath")
-                                     (config "sceneName")
-                                     engine
-                                     #(go (println "Done loading")
-                                          (async/>! scene-out %))
-                                     #(re-frame/dispatch [:update-progress {:evt %}])
-                                     #(do (println "error"))))))
+  (let [config (go (async/<! config-in))
+          [scene-ch progress-ch error-ch]
+          (load-scene engine (config "scenePath") (config "sceneName"))]
+      (go (>! scene-out (<! scene-ch)))
+      (go (re-frame/dispatch [:update-progress {:evt (<! progress-ch)}]))
+      (go (println (str "error" (<! error-ch))))))
+
 ;; pipe
 (defn start-scene [db scene-in ready-out]
   (go
