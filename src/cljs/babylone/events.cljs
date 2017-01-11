@@ -41,8 +41,6 @@
         :register-listener {:resize (fn [] (.resize engine))
                             :keydown (fn [evt] (re-frame/dispatch [:key-down evt]))}}))))
 
-
-
 (re-frame/reg-event-fx
  :tick
  [(re-frame/inject-cofx :now)]
@@ -75,13 +73,6 @@
            #(put! progress-ch %)
            #(put! error-ch %))))
 
-(re-frame/reg-event-fx
- :load-config
- (fn [cofx [_ config]]
-   (let [out (load-config config)]
-     {:db (:db cofx)
-      :dispatch [:create-scene {:engine (-> cofx :db :engine)
-                                :config out}]})))
 
 (defn re-trigger-timer
   [handler] (reagent/next-tick handler))
@@ -108,71 +99,40 @@
                (assoc-in [:loader :percentage] percentage)
                (assoc-in [:loader :background-opacity] (str (double (/ percentage 100)))))))))
 
-;; pipe
-(defn create-scene [engine config-in scene-out]
-  (let [config (go (async/<! config-in))
-          [scene-ch progress-ch error-ch]
-          (load-scene engine (config "scenePath") (config "sceneName"))]
-      (go (>! scene-out (<! scene-ch)))
-      (go (re-frame/dispatch [:update-progress {:evt (<! progress-ch)}]))
-      (go (println (str "error" (<! error-ch))))))
-
-;; pipe
-(defn start-scene [db scene-in ready-out]
-  (go
-    (let [scene (async/<! scene-in)]
-      (println "start scene " scene)
-      (println "cameras " (.-cameras scene))
-      (re-frame/dispatch [:update-progress {:scene scene}])
-      (set! (.-activeCamera scene) (aget (.-cameras scene) (:active-camera db)))
-      (.executeWhenReady scene #(go (async/>! ready-out scene))))))
-
-(re-frame/reg-event-fx
- :create-scene
- (fn [cofx [_ {:keys [engine config] :as input}]]
-   (let [out (async/chan)]
-     (create-scene engine config out)
-     {:db (:db cofx)
-      :dispatch [:before-render out]})))
-
-(re-frame/reg-event-fx
- :before-render
- (fn [{:keys [db]} [_ scene]]
-   (println "before render")
-   (let [out (async/chan)]
-     (start-scene db scene out)
-     {:db db
-      :dispatch [:render out]})))
-
-(re-frame/reg-event-db
- :render
- (fn [{engine :engine :as db} [_ ch-scene]]
-   (println "render")
-   (go (let [scene (async/<! ch-scene)]
-         (.runRenderLoop engine #(.render scene))
-         (re-frame/dispatch [:start-game])))
-    db))
-
 (defn support-fullscreen? [canvas]
   (not (nil? (or (.-requestFullscreen canvas)
                  (.-mozRequestFullScreen canvas)
                  (.-webkitRequestFullscreen canvas)
                  (.-msRequestFullscreen canvas)))))
 
-(defn init-game [db now]
-  (merge db {:start now :ticks 0
+(defn init-game
+  [db]
+  (merge db {:start (js/Date.) :ticks 0
              :clock (js/setInterval #(re-frame/dispatch [:tick]) 1000)
              :loader {:hidden true} :controls {:hidden false
                                                :fullscreen {:support-fullscreen
                                                             (-> db :engine (.getRenderingCanvas))}}}))
 
-(re-frame/reg-event-fx
- :start-game
- [(re-frame/inject-cofx :now)]
- (fn [{:keys [db now]} _]
-   {:db (update db :db init-game now)}))
+(defn whole-scene
+  "Initialize a game scene from config-file using a camera and the engine,
+   also run the render loop of the engine."
+  [engine config-file camera]
+  (go (let [config (<! (load-config config-file))
+            [scene-ch progress-ch error-ch]
+            (load-scene engine (config "scenePath") (config "sceneName"))
+            _ (go (re-frame/dispatch [:update-progress {:evt (<! progress-ch)}]))
+            scene (<! scene-ch)
+            _ (set! (.-activeCamera scene) (aget (.-cameras scene) camera))]
+        (.runRenderLoop engine #(.render scene)))))
 
-;; scene control
+(re-frame/reg-event-fx
+ :load-config
+ (fn [cofx [_ config]]
+   (let [db (:db cofx)
+         engine (:engine db)]
+     (whole-scene engine config (:active-camera db))
+     {:db (update db :db init-game)})))
+
 (re-frame/reg-fx
  :enter-fullscreen
  (fn [zone]
