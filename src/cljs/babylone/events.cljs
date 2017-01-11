@@ -159,21 +159,18 @@
                  (.-webkitRequestFullscreen canvas)
                  (.-msRequestFullscreen canvas)))))
 
+(defn init-game [db now]
+  (merge db {:start now :ticks 0
+             :clock (js/setInterval #(re-frame/dispatch [:tick]) 1000)
+             :loader {:hidden true} :controls {:hidden false
+                                               :fullscreen {:support-fullscreen
+                                                            (-> db :engine (.getRenderingCanvas))}}}))
+
 (re-frame/reg-event-fx
  :start-game
  [(re-frame/inject-cofx :now)]
  (fn [{:keys [db now]} _]
-   {:db (-> db
-            (assoc :start now)
-            (assoc :ticks 0)
-            (assoc :clock (js/setInterval
-                           #(re-frame/dispatch [:tick]) 1000))
-            (update-in [:loader :hidden] (constantly true))
-            (update-in [:controls :hidden] (constantly false))
-            (assoc-in [:controls :fullscreen :support-fullscreen?] (-> db
-                                                                       :engine
-                                                                       (.getRenderingCanvas)
-                                                                       support-fullscreen?)))}))
+   {:db (update db :db init-game now)}))
 
 ;; scene control
 (re-frame/reg-fx
