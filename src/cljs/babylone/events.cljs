@@ -49,13 +49,14 @@
   [engine scene-path scene-name]
   (let [scene-ch (chan)
         progress-ch (chan)
-        error-ch (chan)]
-    (js/BABYLON.SceneLoader.Load
+        error-ch (chan)
+        loader js/BABYLON.SceneLoader]
+    (.Load loader
            scene-path
            scene-name
            engine
            #(put! scene-ch %)
-           #(println "progress updated!" %)
+           #(do (println "progressed") (put! progress-ch %))
            #(put! error-ch %))
     [scene-ch progress-ch error-ch]))
 
