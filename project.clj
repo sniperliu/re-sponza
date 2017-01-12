@@ -4,6 +4,7 @@
                  [org.clojure/core.async "0.2.395"]
                  [reagent "0.6.0"]
                  [re-frame "0.8.0"]
+                 ;; [day8.re-frame/async-flow-fx "0.0.6"]
                  [secretary "1.2.3"]
                  [compojure "1.5.0"]
                  [yogthos/config "0.8"]
@@ -36,10 +37,10 @@
   :profiles
   {:dev
    {:dependencies [[binaryage/devtools "0.8.2"]
-                   [figwheel-sidecar "0.5.7"]
+                   [figwheel-sidecar "0.5.8"]
                    [com.cemerick/piggieback "0.2.1"]]
 
-    :plugins      [[lein-figwheel "0.5.7"]
+    :plugins      [[lein-figwheel "0.5.8"]
                    [lein-doo "0.1.7"]
                    [cider/cider-nrepl "0.14.0"]
                    [org.clojure/tools.namespace "0.3.0-alpha2"

@@ -32,8 +32,7 @@
  (fn [{:keys [db]} [canvas]]
    (when-not (:engine db)
      (let [engine (js/BABYLON.Engine. canvas true #js { "limitDeviceRatio" 2 } true)]
-       (println db)
-       #_(set! engine.enableOfflineSupport true)
+       (set! engine.enableOfflineSupport true)
        {:db (-> db
                 (assoc :engine engine))
         :dispatch [:load-config (:scene db)]
@@ -41,7 +40,14 @@
         :register-listener {:resize (fn [] (.resize engine))
                             :keydown (fn [evt] (re-frame/dispatch [:key-down evt]))}}))))
 
-
+#_(defn babylon-init
+    []
+    {:first-dispatch [:install-engine]
+     :rules [
+             {:when :seen? :events :success-X  :dispatch [:do-Y]}
+             {:when :seen? :events :success-Y  :dispatch [:do-Z]}
+             {:when :seen? :events :success-Z  :halt? true}
+             {:when :seen-any-of? :events [:fail-X :fail-Y :fail-Z] :dispatch  [:app-failed-state] :halt? true}]})
 
 (re-frame/reg-event-fx
  :tick
@@ -51,54 +57,11 @@
    {:db (-> db
             (update :ticks inc))}))
 
-
-
-
-(defn load-config [file-name]
-  (println "loading " file-name)
-  (let [out (async/chan)]
-    (js/BABYLON.Tools.LoadFile "demo.json" #(go (>! out %)))
-    out))
-
-#_(js/BABYLON.Tools.LoadFile "demo.json"
-                             (fn [result]
-                               (let [config (js->clj (js/JSON.parse result))]
-                                 (js/BABYLON.SceneLoader.Load
-                                  (config "scenePath")
-                                  (config "sceneName")
-                                  engine
-                                  (fn [scene]
-                                    (.executeWhenReady scene (fn []
-                                                               (println "ready!!")
-                                                               (.runRenderLoop engine #(.render scene)))))))))
-
-#_(re-frame/reg-event-fx
- :render-scene
- (fn [{:keys [db]} [_ config]]
-   (let [engine (:engine db)]
-     (go (try (-> config
-                  (load-config)
-                  async/<!
-                  (js/JSON.parse)
-                  js->clj
-                  ((partial create-scene engine))
-                  async/<!
-                  ((partial start-scene engine))
-                  async/<!
-                  ((fn [scene]
-                     (.runRenderLoop engine #(.render scene))
-                     (re-frame/dispatch [:start-game]))))
-              (catch js/Error e (println "render scene " e))))
-     {:db db})))
-
-;; source
 (re-frame/reg-event-fx
  :load-config
  (fn [cofx [_ config]]
-   (let [out (load-config config)]
-     {:db (:db cofx)
-      :dispatch [:create-scene {:engine (-> cofx :db :engine)
-                                :config out}]})))
+   (js/BABYLON.Tools.LoadFile config #(re-frame/dispatch [:create-scene (-> % js/JSON.parse js->clj)]))
+   {:db (:db cofx)}))
 
 (defn re-trigger-timer
   [handler] (reagent/next-tick handler))
@@ -125,54 +88,34 @@
                (assoc-in [:loader :percentage] percentage)
                (assoc-in [:loader :background-opacity] (str (double (/ percentage 100)))))))))
 
-;; pipe
-(defn create-scene [engine config-in scene-out]
-  (go (let [config (-> (async/<! config-in)
-                       js/JSON.parse
-                       js->clj)]
-        (println "loading " (str (config "scenePath") (config "sceneName")))
-        (js/BABYLON.SceneLoader.Load (config "scenePath")
-                                     (config "sceneName")
-                                     engine
-                                     #(go (println "Done loading")
-                                          (async/>! scene-out %))
-                                     #(re-frame/dispatch [:update-progress {:evt %}])
-                                     #(do (println "error"))))))
-;; pipe
-(defn start-scene [db scene-in ready-out]
-  (go
-    (let [scene (async/<! scene-in)]
-      (println "start scene " scene)
-      (println "cameras " (.-cameras scene))
-      (re-frame/dispatch [:update-progress {:scene scene}])
-      (set! (.-activeCamera scene) (aget (.-cameras scene) (:active-camera db)))
-      (.executeWhenReady scene #(go (async/>! ready-out scene))))))
-
 (re-frame/reg-event-fx
  :create-scene
- (fn [cofx [_ {:keys [engine config] :as input}]]
-   (let [out (async/chan)]
-     (create-scene engine config out)
-     {:db (:db cofx)
-      :dispatch [:before-render out]})))
+ (fn [{:keys [db]} [_ config]]
+   (let [engine (:engine db)]
+     (js/BABYLON.SceneLoader.Load (config "scenePath") (config "sceneName") engine
+                                  #(re-frame/dispatch [:before-render %])
+                                  #(re-frame/dispatch [:update-progress {:evt %}])
+                                  #(println "error"))
+     {:db db})))
 
 (re-frame/reg-event-fx
  :before-render
  (fn [{:keys [db]} [_ scene]]
    (println "before render")
-   (let [out (async/chan)]
-     (start-scene db scene out)
-     {:db db
-      :dispatch [:render out]})))
+   (println scene)
+   (let [engine (:engine db)]
+     (re-frame/dispatch [:update-progress {:scene scene}])
+     (set! (.-activeCamera scene) (aget (.-cameras scene) (:active-camera db)))
+     (.executeWhenReady scene #(re-frame/dispatch [:render scene])))
+   {:db db}))
 
 (re-frame/reg-event-db
  :render
- (fn [{engine :engine :as db} [_ ch-scene]]
+ (fn [{engine :engine :as db} [_ scene]]
    (println "render")
-   (go (let [scene (async/<! ch-scene)]
-         (.runRenderLoop engine #(.render scene))
-         (re-frame/dispatch [:start-game])))
-    db))
+   (.runRenderLoop engine #(.render scene))
+   (re-frame/dispatch [:start-game])
+   db))
 
 (defn support-fullscreen? [canvas]
   (not (nil? (or (.-requestFullscreen canvas)
